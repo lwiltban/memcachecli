@@ -12,16 +12,24 @@ namespace MemcacheCLI
 {
     class CLI
     {
+        enum OpEnum
+        {
+            noop = 0,
+            delete = 1,
+            list = 2
+        }
+
         private static Logger log = LogManager.GetCurrentClassLogger();
 
         private string ServerName { get; set; }
-        public string Operation { get; set; }
-        public string Pattern { get; set; }
+        private string Operation { get; set; }
+        private OpEnum Op { get; set; } 
+        private string Pattern { get; set; }
 
         static void Main(string[] args)
         {
             CLI cli = null;
-            if (args.Length <= 1)
+            if (args.Length < 1)
             {
                 cli = new CLI();
             }
@@ -44,7 +52,8 @@ namespace MemcacheCLI
             }
             else
             {
-                log.Error("Invalid arguments");
+                Console.WriteLine(string.Format("Invalid arguments \"{0}\"", String.Join(",", args.Select(s => s))));
+                log.Error(string.Format("Invalid arguments \"{0}\"", String.Join(",", args.Select(s => s))));
                 Usage();
 
             }
@@ -63,10 +72,19 @@ namespace MemcacheCLI
             log.Trace(string.Format("Args: {0} {1} {2}", ServerName, Operation, Pattern));
 
             int rc = 0;
+            Op = OpEnum.noop;
+
             switch (Operation.ToLower())
             {
                 case "delete":
-                    rc = DoDelete();
+                    Op = OpEnum.delete;
+                    rc = DoServer();
+                    break;
+
+                case "list":
+                    Op = OpEnum.list;
+                    //Console.WriteLine(string.Format("{0} Items:", ServerName));
+                    rc = DoServer();
                     break;
 
                 default:
@@ -83,14 +101,14 @@ namespace MemcacheCLI
         public void Usage()
         {
             Console.WriteLine("MemcacheCLI usage");
-            Console.WriteLine("MemcacheCLI <memcacheserver> <operation> <pattern>"); 
-            Console.WriteLine("Operation is currently on delete, pattern is the prefix of the cache keys to delete");
+            Console.WriteLine("MemcacheCLI <memcacheserver:port> <operation> <pattern>"); 
+            Console.WriteLine("Operation is currently delete or list, pattern is the regular expression of the cache keys to see if valid");
             System.Environment.Exit(1);
         }
 
 
 
-        private int DoDelete()
+        private int DoServer()
         {
             int rc = 0;
             try
@@ -104,7 +122,7 @@ namespace MemcacheCLI
             }
             catch (Exception ex)
             {
-                log.Error("DoDelete", ex);
+                log.Error("DoServer", ex);
                 rc = 1;
             }
 
@@ -165,11 +183,10 @@ namespace MemcacheCLI
                     {
                         foreach (Item item in items.Values)
                         {
-                            if (IsDeleteable(item))
+                            if (IsValid(item))
                             {
-                                log.Info(string.Format("Deleteable item {0}", item.Name));
-                                current.Delete(item.Name);
-                                log.Info(string.Format("Deleted item {0}", item.Name));
+                                log.Trace(string.Format("Found valid item {0}", item.Name));
+                                DoOperation(current, item);                                
                             }
                             
                         }
@@ -184,18 +201,46 @@ namespace MemcacheCLI
             return rc;
         }
 
-        private bool IsDeleteable(Item item)
+        private bool IsValid(Item item)
         {
             bool rc = true;
             try
-            {                
+            {
                 Match match = Regex.Match(item.Name, Pattern);
                 rc = match.Success;
             }
             catch (Exception ex)
             {
-                log.Error("IsDeleteable", ex);
+                log.Error("IsValid", ex);
                 rc = false;
+            }
+            return rc;
+        }
+
+        private bool DoOperation(Server current, Item item)
+        {
+            bool rc = true;
+            try
+            {
+                switch (Op)
+                {
+                    case OpEnum.delete:
+                        rc = current.Delete(item.Name);
+                        log.Info(string.Format("Deleted item {0}", item.Name));
+                        break;
+
+                    case OpEnum.list:
+                        Console.WriteLine(item.Name);
+                        break;
+
+                    default:
+                        log.Error(string.Format("Invalid operation {0}", Op));
+                        break;
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Error("DoOperation", ex);
             }
             return rc;
         }
